@@ -347,7 +347,9 @@
     <div class="header-btns">
       <button class="trophy-btn" onclick="toggleAchGallery()">🏆 <span class="trophy-count" id="trophy-count">0</span></button>
       <button class="widget-btn" onclick="toggleWidget()">▦ Widget</button>
+      <button class="widget-btn" onclick="pickICloudFile()" style="border-color:rgba(255,255,255,0.15)" title="Sincronizar con widget">☁️</button>
     </div>
+    <div id="icloud-status" style="font-size:0.65rem;color:var(--long);margin-top:5px;transition:opacity 0.5s;opacity:0;letter-spacing:0.06em"></div>
   </div>
   <div class="date" id="date-display"></div>
 </header>
@@ -749,9 +751,67 @@ function copyLink() {
 }
 
 // ═══════════════════════════════════════════
-// CORE
+// iCLOUD SYNC
 // ═══════════════════════════════════════════
-function save() { localStorage.setItem('my-goals', JSON.stringify(goals)); }
+// Saves a mis-metas.json to iCloud via a hidden <a> download trick.
+// The user saves it once to iCloud Drive/Scriptable, after that
+// we overwrite it automatically using the File System Access API (where supported)
+// or prompt a re-download on iOS Safari via a data URI.
+
+let iCloudFileHandle = null; // File System Access API handle (desktop Chrome/Edge)
+
+async function saveToICloud() {
+  const streakData = getStreakData();
+  const payload = JSON.stringify({ goals, streak: streakData.streak, lastSaved: today }, null, 2);
+
+  // 1) Try File System Access API (Chrome/Edge desktop — lets us overwrite same file)
+  if (iCloudFileHandle) {
+    try {
+      const writable = await iCloudFileHandle.createWritable();
+      await writable.write(payload);
+      await writable.close();
+      showICloudStatus('✓ iCloud sincronizado');
+      return;
+    } catch(e) { iCloudFileHandle = null; }
+  }
+
+  // 2) iOS Safari / fallback — download the file so user can save to iCloud Drive
+  const blob = new Blob([payload], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'mis-metas.json';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showICloudStatus('📥 Guarda en iCloud Drive → Scriptable');
+}
+
+async function pickICloudFile() {
+  // Desktop: pick file handle so future saves overwrite automatically
+  if (window.showSaveFilePicker) {
+    try {
+      iCloudFileHandle = await window.showSaveFilePicker({
+        suggestedName: 'mis-metas.json',
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }]
+      });
+      await saveToICloud();
+      return;
+    } catch(e) {}
+  }
+  saveToICloud();
+}
+
+function showICloudStatus(msg) {
+  let el = document.getElementById('icloud-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.opacity = '1';
+  setTimeout(() => { el.style.opacity = '0'; }, 3000);
+}
+
+function save() {
+  localStorage.setItem('my-goals', JSON.stringify(goals));
+}
 function setType(type) {
   selectedType=type;
   document.getElementById('btn-short').className='type-btn'+(type==='short'?' active-short':'');
